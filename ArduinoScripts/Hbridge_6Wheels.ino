@@ -1,8 +1,18 @@
+/*
+ * rosserial PubSub Example
+ * Control teleoperado de robots tipo semana i 
+ * 
+ * rosrun rosserial_python serial_node.py /dev/ttyACM0
+ * 
+ * rostopic pub /cmd_vel geometry_msgs/Twist "linear"
+ */
+
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <ros.h>
 #include <std_msgs/Empty.h>
-#include <sensor_msgs/Joy.h>
+#include <geometry_msgs/Twist.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Float32.h>
 
@@ -42,56 +52,45 @@
 #define motor_6_in4 33
 /*********H_BRIDGE_3*********/
 
-
-//funciton definitions
-void motor1_rot(int);
-void motor2_rot(int);
-void motor3_rot(int);
-void motor4_rot(int);
-void motor5_rot(int);
-void motor6_rot(int);
-void serialControl(char,int&);
-
-
-char FORWARD  = 'w';
-char LEFT     = 'a';
-char RIGHT    = 'd';
-char BACKWARD = 'z';
-char STOP     = 's';
-char SPEEDUP  = 'r';
-char SPEEDDOWN= 'f';
-
-
-
 //ROS NODE HANDLER//
 ros::NodeHandle  nh;
 
-void messageCb( const sensor_msgs::Joy& joy){
+//-------------------------Define robot's variables-------------------------------------- 
+#define WHEELRAD 0.06 //The radius of the wheel (m) 
+#define WHEELDIST 0.5 //Distance between wheels (m) 
+#define INV_WHEELRAD 16.66666666666666666666666666666666667 //The radius of the wheel (m) 
 
-  char cad;
-  int speed = 250;
-  
-  float updown_arrow = joy.axes[7];
-  float lr_arrow     = joy.axes[6];
+volatile float wl, wr; 
 
-  if     (updown_arrow >=  0.5) cad = FORWARD;
-  else if(updown_arrow <= -0.5) cad = BACKWARD;
-  else if(lr_arrow     >=  0.5) cad = LEFT;
-  else if(lr_arrow     <= -0.5) cad = RIGHT;
-  else cad = STOP;
-  
-  serialControl(cad,speed);
-  //control_direction();
-  //control_speed();
-  
-}
+//-----------------------------Subscriber--------------------------------
+void cmd_vel_cb( const geometry_msgs::Twist& vel_msg){ 
+  digitalWrite(13, HIGH-digitalRead(13));   // blink the led 
+  set_wheel_speeds(vel_msg.linear.x, vel_msg.angular.z); 
+} 
+
+ros::Subscriber<geometry_msgs::Twist> cmd_vel_sub("cmd_vel", cmd_vel_cb); 
+
+//-----------------------------Publisher---------------------------------
+//----Messagges----------------------------------------------------------
+std_msgs::Float32 wr_msg; //right wheel speed ros message 
+std_msgs::Float32 wl_msg; //left wheel speed ros message
+
+ros::Publisher wr_pub("wr", &wr_msg); 
+ros::Publisher wl_pub("wl", &wl_msg);  
+
+void set_wheel_speeds(float v, float w) { 
+  /***Equations for a differential drive mobile robot. 
+  * We are avoiding divisions to make it faster 
+  ***/ 
+  //Right wheel angular speed [rad/s] 
+  wr = (2.0 * v + WHEELDIST * w) * 0.5 * INV_WHEELRAD; //Right wheel angular speed [rad/s] 
+  wl = (2.0 * v - WHEELDIST * w) * 0.5 * INV_WHEELRAD; //Left wheel angular speed [rad/s] 
+} 
 
 ros::Subscriber<sensor_msgs::Joy> sub("joy", &messageCb );
 
-////////////////////
-
-
 void setup() {
+  
   /*********H_BRIDGE_1*********/
   //Motor1
   pinMode(motor_1_ena, OUTPUT);
@@ -104,10 +103,10 @@ void setup() {
   pinMode(motor_2_in4, OUTPUT);
 
   // Set initial rotation direction
-  analogWrite(motor_1_ena, 250);
+  analogWrite(motor_1_ena, 127);
   digitalWrite(motor_1_in1, LOW);
   digitalWrite(motor_1_in2, LOW);
-  analogWrite(motor_2_enb, 250);
+  analogWrite(motor_2_enb, 127);
   digitalWrite(motor_2_in3, LOW);
   digitalWrite(motor_2_in4, LOW);
   /*********H_BRIDGE_1*********/
@@ -124,10 +123,10 @@ void setup() {
   pinMode(motor_4_in4, OUTPUT);
 
   // Set initial rotation direction
-  analogWrite(motor_3_ena, 250);
+  analogWrite(motor_3_ena, 127);
   digitalWrite(motor_3_in1, LOW);
   digitalWrite(motor_3_in2, LOW);
-  analogWrite(motor_4_enb, 250);
+  analogWrite(motor_4_enb, 127);
   digitalWrite(motor_4_in3, LOW);
   digitalWrite(motor_4_in4, LOW);
   /*********H_BRIDGE_2*********/
@@ -144,206 +143,89 @@ void setup() {
   pinMode(motor_6_in4, OUTPUT);
 
   // Set initial rotation direction
-  analogWrite(motor_5_ena, 250);
+  analogWrite(motor_5_ena, 127);
   digitalWrite(motor_5_in1, LOW);
   digitalWrite(motor_5_in2, LOW);
-  analogWrite(motor_6_enb, 250);
+  analogWrite(motor_6_enb, 127);
   digitalWrite(motor_6_in3, LOW);
   digitalWrite(motor_6_in4, LOW);
   /*********H_BRIDGE_3*********/
 
-//  //Serial COM
-//  Serial.begin(9600);
-//  Serial.setTimeout(5);//default: 1000, changed to run in realtime
-//  delay(30);
-
   //NODE HANDLER
-  nh.initNode();
-  nh.subscribe(sub);
+  pinMode(13, OUTPUT); 
+  nh.initNode(); 
+  nh.advertise(wr_pub); 
+  nh.advertise(wl_pub); 
+  nh.subscribe(cmd_vel_sub); 
 }
 
-void loop() {
-  nh.spinOnce();
-  delay(1);
+void loop(){ 
+  if (!(millis() % 100)) {
+  /*  
+  *  Enter here every 100 ms 
+  *  Add your code here  
+  *  str_pub.publish(&str_msg); //Example publish data 
+  */  
+  wr_msg.data = wr; 
+  wl_msg.data = wl; 
+  wr_pub.publish( &wr_msg ); 
+  wl_pub.publish( &wl_msg );
+  control(wr,wl);
+  }
+  nh.spinOnce(); 
+} 
 
-//  //Begin serial control
-//  serialControl();
-//
-//  //stop motors and finish execution
-//  motor1_rot(-1);
-//  motor2_rot(-1);
-//  while(1); 
+void control(float r, float l){
+    right_side_control(r);
+    left_side_control(l);
 }
 
+void right_side_control(float n){
+  int s = 0;
+  analogWrite(motor_1_ena, n);
+  analogWrite(motor_3_ena, n); 
+  analogWrite(motor_5_ena, n); 
 
-//////////    FUNTION DECLARATIONS    //////////
-//MOTOR 1, n:1 forward, n:0 backwards, n:-1 stop
-void motor1_rot(int n){
-  if(n == -1) {//
+  if(n == 0){
     digitalWrite(motor_1_in1, LOW);
     digitalWrite(motor_1_in2, LOW);
-   }else{
-  digitalWrite(motor_1_in1, n);
-  digitalWrite(motor_1_in2, !n);
-  }
-}
-
-//MOTOR 2, n:1 forward, n:0 backwards, n:-1 stop
-void motor2_rot(int n){
-  if(n == -1) {//
-    digitalWrite(motor_2_in3, LOW);
-    digitalWrite(motor_2_in4, LOW);
-   }else{
-  digitalWrite(motor_2_in3, n);
-  digitalWrite(motor_2_in4, !n);
-  }
-}
-
-//MOTOR 3, n:1 forward, n:0 backwards, n:-1 stop
-void motor3_rot(int n){
-  if(n == -1) {//
     digitalWrite(motor_3_in1, LOW);
     digitalWrite(motor_3_in2, LOW);
-   }else{
-  digitalWrite(motor_3_in1, !n);
-  digitalWrite(motor_3_in2, n);
-  }
-}
-
-//MOTOR 4, n:1 forward, n:0 backwards, n:-1 stop
-void motor4_rot(int n){
-  if(n == -1) {//
-    digitalWrite(motor_4_in3, LOW);
-    digitalWrite(motor_4_in4, LOW);
-   }else{
-  digitalWrite(motor_4_in3, !n);
-  digitalWrite(motor_4_in4, n);
-  }
-}
-
-//MOTOR 5, n:1 forward, n:0 backwards, n:-1 stop
-void motor5_rot(int n){
-  if(n == -1) {//
     digitalWrite(motor_5_in1, LOW);
     digitalWrite(motor_5_in2, LOW);
-   }else{
-  digitalWrite(motor_5_in1, n);
-  digitalWrite(motor_5_in2, !n);
+  } else {
+    if(n>0) s=1;
+    else    s=0;
+    digitalWrite(motor_1_in1, s);
+    digitalWrite(motor_1_in2, !s);
+    digitalWrite(motor_3_in1, s);
+    digitalWrite(motor_3_in2, !s);
+    digitalWrite(motor_5_in1, s);
+    digitalWrite(motor_5_in2, !s);
   }
 }
 
-//MOTOR 6, n:1 forward, n:0 backwards, n:-1 stop
-void motor6_rot(int n){
-  if(n == -1) {//
+void left_side_control(float n){
+  int s = 0;
+  analogWrite(motor_2_enb, n);
+  analogWrite(motor_4_enb, n); 
+  analogWrite(motor_6_enb, n); 
+
+  if(n == 0){
+    digitalWrite(motor_2_in3, LOW);
+    digitalWrite(motor_2_in4, LOW);
+    digitalWrite(motor_4_in3, LOW);
+    digitalWrite(motor_4_in4, LOW);
     digitalWrite(motor_6_in3, LOW);
     digitalWrite(motor_6_in4, LOW);
-   }else{
-  digitalWrite(motor_6_in3, n);
-  digitalWrite(motor_6_in4, !n);
-  }
-}
-
-
-//Serial Control function//
-void serialControl(char cad, int& speed){
-//  char cad;
-//  int speed = 127;
-
-      switch (cad) {
-        case 'w' : //Forward
-                     /*****LEFT WHEELS*****/
-                     motor1_rot(1);
-                     motor2_rot(1);
-                     motor5_rot(1);
-                     /*****LEFT WHEELS*****/
-
-                     /*****RIGHT WHEELS*****/
-                     motor3_rot(1);
-                     motor4_rot(1);
-                     motor6_rot(1);
-                     /*****RIGHT WHEELS*****/
-                     //Serial.println("Forward");
-                     break;
-        case 'a' ://Rotate left
-                     /*****LEFT WHEELS*****/
-                     motor1_rot(0);
-                     motor2_rot(1);
-                     motor5_rot(0);
-                     /*****LEFT WHEELS*****/
-
-                     /*****RIGHT WHEELS*****/
-                     motor3_rot(1);
-                     motor4_rot(1);
-                     motor6_rot(0);
-                     /*****RIGHT WHEELS*****/                                          
-                     //Serial.println("Rotate left");
-                     break;
-        case 'd' ://Rotate right
-                     /*****LEFT WHEELS*****/
-                     motor1_rot(1);
-                     motor2_rot(0);
-                     motor5_rot(1);
-                     /*****LEFT WHEELS*****/
-
-                     /*****RIGHT WHEELS*****/
-                     motor3_rot(0);
-                     motor4_rot(0);
-                     motor6_rot(1);
-                     /*****RIGHT WHEELS*****/                     
-
-                     //Serial.println("Rotate right");
-                     break;
-        case 'z' ://Backwards
-                     /*****LEFT WHEELS*****/
-                     motor1_rot(0);
-                     motor2_rot(0);
-                     motor5_rot(0);
-                     /*****LEFT WHEELS*****/
-
-                     /*****RIGHT WHEELS*****/
-                     motor3_rot(0);
-                     motor4_rot(0);
-                     motor6_rot(0);
-                     /*****RIGHT WHEELS*****/  
-                     //Serial.println("Backwards");
-                     break;
-        case 's' ://Stop
-                     /*****LEFT WHEELS*****/
-                     motor1_rot(-1);
-                     motor2_rot(-1);
-                     motor5_rot(-1);
-                     /*****LEFT WHEELS*****/
-
-                     /*****RIGHT WHEELS*****/
-                     motor3_rot(-1);
-                     motor4_rot(-1);
-                     motor6_rot(-1);
-                     /*****RIGHT WHEELS*****/  
-                     //Serial.println("Stop");
-                     break;                     
-        case 'r' ://speed up
-                    if(speed<(255-20)) speed = speed + 20;
-                    speed = speed + 20;
-                    analogWrite(motor_1_ena, speed);
-                    analogWrite(motor_2_enb, speed);
-                    analogWrite(motor_3_ena, speed);
-                    analogWrite(motor_4_enb, speed);
-                    analogWrite(motor_5_ena, speed);
-                    analogWrite(motor_6_enb, speed);                                        
-                    //Serial.println("Speed up");
-                    //delay(2000);
-                     break;
-        case 'f' ://speed down
-                    if(speed>20) speed = speed - 20;
-                    analogWrite(motor_1_ena, speed);
-                    analogWrite(motor_2_enb, speed);
-                    analogWrite(motor_3_ena, speed);
-                    analogWrite(motor_4_enb, speed);
-                    analogWrite(motor_5_ena, speed);
-                    analogWrite(motor_6_enb, speed);  
-                    //Serial.println("Speed down");
-                    //delay(2000);
-                    break;
-        default :   break;
+  } else {
+    if(n>0) s=1;
+    else    s=0;
+    digitalWrite(motor_2_in3, s);
+    digitalWrite(motor_2_in4, !s);
+    digitalWrite(motor_4_in3, s);
+    digitalWrite(motor_4_in4, !s);
+    digitalWrite(motor_6_in3, s);
+    digitalWrite(motor_6_in4, !s);
   }
 }
